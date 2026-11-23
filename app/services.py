@@ -186,17 +186,29 @@ def weekly_summary(conn: sqlite3.Connection, student_id: str) -> dict:
 
 # ---------- 导出 ----------
 
-def export_report(conn: sqlite3.Connection) -> bytes:
-    """全量统计报表：每个学生 × 每周（请假/旷课学时）+ 合计。"""
-    students = list_students(conn)
-    weeks = [r[0] for r in conn.execute(
+def all_weeks(conn: sqlite3.Connection) -> list:
+    """所有存在缺勤记录的周次（升序）。"""
+    return [r[0] for r in conn.execute(
         "SELECT DISTINCT week FROM absence_records ORDER BY week").fetchall()]
+
+
+def export_report(conn: sqlite3.Connection, week=None) -> bytes:
+    """统计报表：只导出有缺勤记录的学生；week 为空导出全部周次，否则仅该周。"""
+    if week is None:
+        weeks = all_weeks(conn)
+        week_filter, params = "", []
+    else:
+        weeks = [int(week)]
+        week_filter = " WHERE week = ?"
+        params = [int(week)]
     stats: dict = {}
     for r in conn.execute(
             "SELECT student_id, week, type, COUNT(*) AS n FROM absence_records"
-            " GROUP BY student_id, week, type").fetchall():
+            + week_filter + " GROUP BY student_id, week, type", params).fetchall():
         stats.setdefault(r["student_id"], {}).setdefault(
             r["week"], {"leave": 0, "absent": 0})[r["type"]] = r["n"] * 2
+    # 只保留有缺勤记录的学生
+    students = [s for s in list_students(conn) if s["student_id"] in stats]
 
     wb = Workbook()
     ws = wb.active

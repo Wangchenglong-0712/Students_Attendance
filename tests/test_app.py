@@ -259,7 +259,49 @@ def test_export_report(tmp_path):
     assert zhang[-2] == 4 and zhang[-1] == 2   # 请假 4 学时，旷课 2 学时
     li = by_sid["2023010102"]
     assert li[-2] == 0 and li[-1] == 2
+    # 无缺勤记录的学生不出现在报表中
+    assert "2023010201" not in by_sid
     wb.close()
+
+
+def test_export_specific_week(tmp_path):
+    client = make_client(tmp_path)
+    import_roster(client)
+    add(client, "2023010101", 5, ["1-2"], "leave")     # 第5周有记录
+    add(client, "2023010101", 7, ["3-4"], "absent")    # 同一人第7周也有
+    add(client, "2023010102", 7, ["1-2"], "absent")    # 另一人只有第7周
+    resp = client.get("/export", params={"week": 5})
+    assert resp.status_code == 200
+    wb = load_workbook(io.BytesIO(resp.content))
+    rows = list(wb.active.iter_rows(values_only=True))
+    header = rows[0]
+    assert "第5周 请假(学时)" in header
+    assert not any("第7周" in str(h) for h in header)   # 不含其他周次列
+    by_sid = {r[1]: r for r in rows[1:]}
+    assert list(by_sid.keys()) == ["2023010101"]       # 只含该周有记录的学生
+    assert by_sid["2023010101"][-2] == 2 and by_sid["2023010101"][-1] == 0
+    wb.close()
+
+
+def test_export_week_without_records(tmp_path):
+    client = make_client(tmp_path)
+    import_roster(client)
+    add(client, "2023010101", 5, ["1-2"], "leave")
+    resp = client.get("/export", params={"week": 9})
+    assert resp.status_code == 200
+    wb = load_workbook(io.BytesIO(resp.content))
+    rows = list(wb.active.iter_rows(values_only=True))
+    assert len(rows) == 1          # 只有表头，无学生
+    wb.close()
+
+
+def test_index_shows_export_weeks(tmp_path):
+    client = make_client(tmp_path)
+    import_roster(client)
+    add(client, "2023010101", 5, ["1-2"], "leave")
+    home = client.get("/")
+    assert 'value="5">第 5 周' in home.text
+    assert "仅导出有缺勤记录的学生" in home.text
 
 
 def test_export_empty_roster(tmp_path):

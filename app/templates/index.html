@@ -19,6 +19,20 @@
 </div>
 
 <div class="card">
+  <h2>导出缺勤报表</h2>
+  <form action="/export" method="get">
+    <select name="week">
+      <option value="">全部周次</option>
+      {% for w in export_weeks %}
+      <option value="{{ w }}">第 {{ w }} 周</option>
+      {% endfor %}
+    </select>
+    <button type="submit">导出 xlsx</button>
+    <div class="muted">仅导出有缺勤记录的学生；选择具体周次则只含该周的请假/旷课学时与合计</div>
+  </form>
+</div>
+
+<div class="card">
   <h2>当前名单（{{ count }} 人）</h2>
   {% if students %}
   <table>

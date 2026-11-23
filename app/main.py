@@ -43,6 +43,7 @@ def create_app(db_path=None) -> FastAPI:
         students = services.list_students(app.state.conn)
         return page(request, "index.html",
                     {"students": students, "count": len(students),
+                     "export_weeks": services.all_weeks(app.state.conn),
                      "periods": services.PERIODS})
 
     @app.post("/import")
@@ -130,8 +131,10 @@ def create_app(db_path=None) -> FastAPI:
 
     # ---------- 导出 ----------
     @app.get("/export")
-    def export():
-        data = services.export_report(app.state.conn)
+    def export(week: int = None):
+        if week is not None and week < 1:
+            return _redirect("/", err="周次必须是正整数")
+        data = services.export_report(app.state.conn, week)
         filename = urllib.parse.quote("缺勤统计报表.xlsx")
         return Response(
             content=data,
