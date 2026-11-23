@@ -3,3 +3,6 @@ __pycache__/
 .pytest_cache/
 data/
 *.db
+# 本地导入的信息表与导出的报表（含学生个人信息，禁止上传）
+*.xlsx
+*.xls
