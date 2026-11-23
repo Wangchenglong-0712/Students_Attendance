@@ -135,10 +135,10 @@ def test_student_detail_not_found(tmp_path):
 
 # ---------- 登记与统计 ----------
 
-def add(client, sid, week, periods, rtype, note=""):
+def add(client, sid, week, periods, rtype, note="", weekday="星期一"):
     return client.post(f"/student/{sid}/records",
-                       data={"week": week, "rtype": rtype, "note": note,
-                             "period": periods},
+                       data={"week": week, "weekday": weekday, "rtype": rtype,
+                             "note": note, "period": periods},
                        follow_redirects=False)
 
 
@@ -267,7 +267,8 @@ def test_export_report(tmp_path):
 def test_export_specific_week(tmp_path):
     client = make_client(tmp_path)
     import_roster(client)
-    add(client, "2023010101", 5, ["1-2"], "leave")     # 第5周有记录
+    add(client, "2023010101", 5, ["1-2"], "leave", weekday="星期五")
+    add(client, "2023010101", 5, ["5-6"], "absent", weekday="星期三")
     add(client, "2023010101", 7, ["3-4"], "absent")    # 同一人第7周也有
     add(client, "2023010102", 7, ["1-2"], "absent")    # 另一人只有第7周
     resp = client.get("/export", params={"week": 5})
@@ -277,10 +278,70 @@ def test_export_specific_week(tmp_path):
     header = rows[0]
     assert "第5周 请假(学时)" in header
     assert not any("第7周" in str(h) for h in header)   # 不含其他周次列
+    assert list(header[-1:]) == ["缺勤明细"]
     by_sid = {r[1]: r for r in rows[1:]}
     assert list(by_sid.keys()) == ["2023010101"]       # 只含该周有记录的学生
-    assert by_sid["2023010101"][-2] == 2 and by_sid["2023010101"][-1] == 0
+    row = by_sid["2023010101"]
+    assert row[-3] == 2 and row[-2] == 2               # 请假 2 学时、旷课 2 学时
+    # 明细按星期一~日、节次排序，格式“星期五：1-2（假）”
+    assert row[-1] == "星期三：5-6（旷）；星期五：1-2（假）"
     wb.close()
+
+
+def test_same_period_different_weekday_allowed(tmp_path):
+    client = make_client(tmp_path)
+    import_roster(client)
+    r1 = add(client, "2023010101", 5, ["1-2"], "leave", weekday="星期一")
+    r2 = add(client, "2023010101", 5, ["1-2"], "absent", weekday="星期五")
+    assert "登记成功 1 条" in loc(r1)
+    assert "登记成功 1 条" in loc(r2)   # 不同星期的同节次可分别登记
+    page = client.get("/student/2023010101", params={"week": 5})
+    assert "请假 <b class=\"leave\">2 学时</b>" in page.text
+    assert "旷课 <b class=\"absent\">2 学时</b>" in page.text
+
+
+def test_invalid_weekday_rejected(tmp_path):
+    client = make_client(tmp_path)
+    import_roster(client)
+    resp = add(client, "2023010101", 5, ["1-2"], "leave", weekday="星期八")
+    assert "星期必须是星期一至星期日" in loc(resp)
+
+
+def test_student_page_shows_weekday(tmp_path):
+    client = make_client(tmp_path)
+    import_roster(client)
+    add(client, "2023010101", 5, ["1-2"], "leave", weekday="星期五")
+    page = client.get("/student/2023010101")
+    assert 'name="weekday"' in page.text          # 登记表单有星期选择
+    assert "<td>星期五</td>" in page.text         # 记录列表展示星期
+
+
+def test_db_migration_adds_weekday(tmp_path):
+    """旧版数据库（无 weekday 列）升级后历史记录保留。"""
+    import sqlite3
+
+    from app import db as dbmod
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(str(path))
+    conn.executescript(
+        "CREATE TABLE absence_records ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT, student_id TEXT NOT NULL,"
+        " week INTEGER NOT NULL, period TEXT NOT NULL,"
+        " type TEXT NOT NULL CHECK (type IN ('absent','leave')),"
+        " note TEXT, created_at TEXT NOT NULL,"
+        " UNIQUE (student_id, week, period));"
+        " INSERT INTO absence_records (student_id, week, period, type, note, created_at)"
+        " VALUES ('2023010101', 3, '1-2', 'leave', '', '2026-01-01 00:00:00');")
+    conn.commit()
+    conn.close()
+
+    conn2 = dbmod.connect(path)
+    dbmod.init(conn2)
+    rows = conn2.execute("SELECT * FROM absence_records").fetchall()
+    assert len(rows) == 1
+    assert rows[0]["weekday"] == ""
+    assert rows[0]["period"] == "1-2"
+    conn2.close()
 
 
 def test_export_week_without_records(tmp_path):

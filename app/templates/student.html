@@ -24,6 +24,13 @@
   <form action="/student/{{ student['student_id'] }}/records" method="post">
     <div>
       <label>周次 <input type="number" name="week" min="1" value="{{ week }}" required></label>
+      <label>星期
+        <select name="weekday" required>
+          {% for wd in weekdays %}
+          <option value="{{ wd }}">{{ wd }}</option>
+          {% endfor %}
+        </select>
+      </label>
     </div>
     <div>
       {% for p in periods %}
@@ -48,9 +55,10 @@
     <p class="totals">第 {{ w }} 周：请假 <b class="leave">{{ summary.get(w, {'leave':0})['leave'] }} 学时</b> ·
       旷课 <b class="absent">{{ summary.get(w, {'absent':0})['absent'] }} 学时</b></p>
     <table>
-      <tr><th>节次</th><th>类型</th><th>备注</th><th>操作</th></tr>
+      <tr><th>星期</th><th>节次</th><th>类型</th><th>备注</th><th>操作</th></tr>
       {% for r in recs %}
       <tr>
+        <td>{{ r['weekday'] or '—' }}</td>
         <td>{{ r['period'] }}</td>
         <td>{{ type_label[r['type']] }}</td>
         <td>{{ r['note'] or '' }}</td>

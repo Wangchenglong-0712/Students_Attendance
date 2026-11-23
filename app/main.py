@@ -91,6 +91,7 @@ def create_app(db_path=None) -> FastAPI:
                      "summary": summary, "weeks": weeks,
                      "week": week, "current": current,
                      "periods": services.PERIODS,
+                     "weekdays": services.WEEKDAYS,
                      "type_label": services.TYPE_LABEL})
 
     @app.post("/student/{student_id}/records")
@@ -99,12 +100,13 @@ def create_app(db_path=None) -> FastAPI:
             return _redirect("/", err="该学生不存在")
         form = await request.form()
         week = form.get("week", "")
+        weekday = form.get("weekday", "")
         rtype = form.get("rtype", "")
         note = form.get("note", "")
         periods = form.getlist("period")
         try:
             result = services.add_records(
-                app.state.conn, student_id, week, periods, rtype, note)
+                app.state.conn, student_id, week, weekday, periods, rtype, note)
         except ValueError as e:
             return _redirect(f"/student/{student_id}", err=str(e))
         msg = f"登记成功 {result['created']} 条"

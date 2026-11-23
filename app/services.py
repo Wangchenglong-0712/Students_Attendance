@@ -8,6 +8,8 @@ from openpyxl import Workbook, load_workbook
 
 PERIODS = ["1-2", "3-4", "5-6", "7-8", "9-10", "11-12"]
 PERIOD_ORDER = {p: i for i, p in enumerate(PERIODS)}
+WEEKDAYS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+WEEKDAY_ORDER = {w: i for i, w in enumerate(WEEKDAYS)}
 REQUIRED_HEADERS = ["姓名", "学号", "专业", "班级", "年级"]
 HEADER_FIELD = {"姓名": "name", "学号": "student_id", "专业": "major",
                 "班级": "class_name", "年级": "grade"}
@@ -112,13 +114,15 @@ def get_student(conn: sqlite3.Connection, student_id: str):
 
 # ---------- 缺勤登记 ----------
 
-def validate_input(week, periods, rtype):
+def validate_input(week, weekday, periods, rtype):
     try:
         week = int(week)
     except (TypeError, ValueError):
         raise ValueError("周次必须是正整数")
     if week < 1:
         raise ValueError("周次必须是正整数")
+    if weekday not in WEEKDAYS:
+        raise ValueError("星期必须是星期一至星期日")
     if not periods:
         raise ValueError("请至少选择一个节次")
     bad = [p for p in periods if p not in PERIODS]
@@ -126,20 +130,21 @@ def validate_input(week, periods, rtype):
         raise ValueError("非法节次：" + "、".join(bad))
     if rtype not in VALID_TYPES:
         raise ValueError("缺勤类型必须是旷课或请假")
-    return week, list(dict.fromkeys(periods)), rtype
+    return week, weekday, list(dict.fromkeys(periods)), rtype
 
 
-def add_records(conn: sqlite3.Connection, student_id: str, week, periods,
+def add_records(conn: sqlite3.Connection, student_id: str, week, weekday, periods,
                 rtype: str, note: str = "") -> dict:
-    """登记缺勤，返回 {'created': n, 'skipped': m}（同周同节次已存在则跳过）。"""
-    week, periods, rtype = validate_input(week, periods, rtype)
+    """登记缺勤，返回 {'created': n, 'skipped': m}（同周同星期同节次已存在则跳过）。"""
+    week, weekday, periods, rtype = validate_input(week, weekday, periods, rtype)
     now = datetime.now().isoformat(timespec="seconds")
     created = skipped = 0
     for p in periods:
         cur = conn.execute(
-            "INSERT OR IGNORE INTO absence_records (student_id, week, period, type, note, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (student_id, week, p, rtype, note.strip(), now))
+            "INSERT OR IGNORE INTO absence_records"
+            " (student_id, week, weekday, period, type, note, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (student_id, week, weekday, p, rtype, note.strip(), now))
         if cur.rowcount:
             created += 1
         else:
@@ -152,7 +157,9 @@ def list_records(conn: sqlite3.Connection, student_id: str) -> list:
     rows = conn.execute(
         "SELECT * FROM absence_records WHERE student_id = ?",
         (student_id,)).fetchall()
-    return sorted(rows, key=lambda r: (-r["week"], PERIOD_ORDER.get(r["period"], 99)))
+    return sorted(rows, key=lambda r: (-r["week"],
+                                       WEEKDAY_ORDER.get(r["weekday"], 99),
+                                       PERIOD_ORDER.get(r["period"], 99)))
 
 
 def update_record_type(conn: sqlite3.Connection, record_id: int, rtype: str) -> bool:
@@ -210,6 +217,21 @@ def export_report(conn: sqlite3.Connection, week=None) -> bytes:
     # 只保留有缺勤记录的学生
     students = [s for s in list_students(conn) if s["student_id"] in stats]
 
+    # 指定周次时生成缺勤明细，如“星期五：1-2（假）；星期三：5-6（旷）”
+    details: dict = {}
+    if week is not None:
+        for r in conn.execute(
+                "SELECT student_id, weekday, period, type FROM absence_records"
+                " WHERE week = ?", (int(week),)).fetchall():
+            mark = "假" if r["type"] == "leave" else "旷"
+            entry = f"{r['weekday']}：{r['period']}（{mark}）" if r["weekday"] \
+                else f"{r['period']}（{mark}）"
+            details.setdefault(r["student_id"], []).append(
+                (WEEKDAY_ORDER.get(r["weekday"], 99),
+                 PERIOD_ORDER.get(r["period"], 99), entry))
+        for sid in details:
+            details[sid] = "；".join(e for _, _, e in sorted(details[sid]))
+
     wb = Workbook()
     ws = wb.active
     ws.title = "缺勤统计"
@@ -217,6 +239,8 @@ def export_report(conn: sqlite3.Connection, week=None) -> bytes:
     for w in weeks:
         header += [f"第{w}周 请假(学时)", f"第{w}周 旷课(学时)"]
     header += ["请假合计(学时)", "旷课合计(学时)"]
+    if week is not None:
+        header.append("缺勤明细")
     ws.append(header)
 
     for s in students:
@@ -229,6 +253,8 @@ def export_report(conn: sqlite3.Connection, week=None) -> bytes:
             leave_total += cell["leave"]
             absent_total += cell["absent"]
         row += [leave_total, absent_total]
+        if week is not None:
+            row.append(details.get(s["student_id"], ""))
         ws.append(row)
 
     out = io.BytesIO()
