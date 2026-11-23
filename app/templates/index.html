@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>搜索学生</h2>
+  <form action="/search" method="get">
+    <input type="text" name="q" placeholder="输入姓名或学号" required>
+    <button type="submit">搜索</button>
+    <span class="muted">输入姓名匹配学号，输入学号匹配姓名；重名会列出候选</span>
+  </form>
+</div>
+
+<div class="card">
+  <h2>导入信息表（xlsx）</h2>
+  <form action="/import" method="post" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".xlsx" required>
+    <button type="submit">导入</button>
+    <div class="muted">必需表头：姓名、学号、专业、班级、年级；每次导入整体覆盖当前名单（同名学号学生的缺勤记录保留）</div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>当前名单（{{ count }} 人）</h2>
+  {% if students %}
+  <table>
+    <tr><th>学号</th><th>姓名</th><th>专业</th><th>班级</th><th>年级</th></tr>
+    {% for s in students %}
+    <tr>
+      <td><a href="/student/{{ s['student_id'] }}">{{ s['student_id'] }}</a></td>
+      <td><a href="/student/{{ s['student_id'] }}">{{ s['name'] }}</a></td>
+      <td>{{ s['major'] }}</td>
+      <td>{{ s['class_name'] }}</td>
+      <td>{{ s['grade'] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">尚未导入信息表。</p>
+  {% endif %}
+</div>
+{% endblock %}

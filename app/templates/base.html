@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{% block title %}学生缺勤登记系统{% endblock %}</title>
+<style>
+  body { font-family: "Microsoft YaHei", sans-serif; margin: 0; background: #f5f6f8; color: #222; }
+  header { background: #2c3e50; color: #fff; padding: 14px 28px; display: flex; align-items: center; gap: 24px; }
+  header a { color: #dfe6ee; text-decoration: none; margin-right: 14px; }
+  header a:hover { color: #fff; text-decoration: underline; }
+  main { max-width: 980px; margin: 24px auto; padding: 0 16px; }
+  .banner { padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; }
+  .banner.ok { background: #e6f7e6; border: 1px solid #9cd69c; color: #1e7a1e; }
+  .banner.err { background: #fdecea; border: 1px solid #f0b3ad; color: #b3261e; }
+  .card { background: #fff; border: 1px solid #e2e5e9; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+  h2 { margin-top: 0; font-size: 18px; }
+  input[type=text], input[type=number], select { padding: 7px 10px; border: 1px solid #c9ced4; border-radius: 5px; font-size: 14px; }
+  button { padding: 7px 16px; background: #2c7be5; color: #fff; border: 0; border-radius: 5px; cursor: pointer; font-size: 14px; }
+  button:hover { background: #1a68d1; }
+  button.plain { background: #6c757d; }
+  button.danger { background: #d9534f; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { border: 1px solid #e2e5e9; padding: 7px 10px; text-align: left; }
+  th { background: #f0f2f5; }
+  .muted { color: #777; font-size: 13px; }
+  label.period { display: inline-block; margin: 4px 10px 4px 0; }
+  .totals { font-size: 16px; }
+  .totals b.leave { color: #e67e22; }
+  .totals b.absent { color: #c0392b; }
+  .actions { display: inline-flex; gap: 6px; align-items: center; }
+  .actions form { display: inline; }
+</style>
+</head>
+<body>
+<header>
+  <strong>学生缺勤登记系统</strong>
+  <nav><a href="/">首页</a><a href="/export">导出报表</a></nav>
+</header>
+<main>
+  {% if msg %}<div class="banner ok">{{ msg }}</div>{% endif %}
+  {% if err %}<div class="banner err">{{ err }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

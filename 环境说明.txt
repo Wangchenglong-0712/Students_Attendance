@@ -1,0 +1,43 @@
+========================================
+学生缺勤登记系统 — 环境说明
+========================================
+
+一、环境基本信息
+----------------------------------------
+环境名称：absence_tracker（conda 虚拟环境）
+Python：3.12.16
+环境位置：C:\miniconda3\envs\absence_tracker
+创建命令：
+    conda create -n absence_tracker python=3.12 -y
+
+二、依赖清单（均安装在上述 conda 环境内）
+----------------------------------------
+fastapi            0.165.0    Web 框架
+starlette          1.10.0     FastAPI 底层（随 fastapi 安装）
+uvicorn[standard]  0.54.0     ASGI 服务器
+jinja2             3.1.6      页面模板渲染
+python-multipart   0.0.34     文件上传表单解析
+openpyxl           3.1.5      读写 xlsx
+pytest             9.2.0      单元/接口测试
+httpx              0.28.1     测试用 HTTP 客户端
+
+安装命令：
+    conda run -n absence_tracker pip install fastapi "uvicorn[standard]" openpyxl jinja2 python-multipart pytest httpx
+
+三、启动方式
+----------------------------------------
+在项目根目录 d:\trae_test 下执行：
+    conda run --no-capture-output -n absence_tracker python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+或直接运行：
+    powershell -File 启动.ps1
+然后浏览器访问：http://127.0.0.1:8000
+
+四、运行测试
+----------------------------------------
+    conda run -n absence_tracker pytest
+测试使用临时数据库（位于系统临时目录），不产生工作区残留文件。
+
+五、数据文件
+----------------------------------------
+SQLite 数据库：d:\trae_test\data\absence.db（首次启动自动创建）
+导出的报表：由浏览器下载到用户选择的位置

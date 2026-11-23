@@ -1,0 +1,145 @@
+"""FastAPI 路由：导入、检索、学生详情、缺勤登记、统计导出。"""
+import os
+import urllib.parse
+from pathlib import Path
+
+from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi.responses import RedirectResponse, Response
+from fastapi.templating import Jinja2Templates
+
+from . import db, services
+
+ROOT = Path(__file__).resolve().parent.parent
+TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+
+
+def _redirect(path: str, msg: str = "", err: str = "") -> RedirectResponse:
+    params = {}
+    if msg:
+        params["msg"] = msg
+    if err:
+        params["err"] = err
+    if params:
+        path = path + ("&" if "?" in path else "?") + urllib.parse.urlencode(params)
+    return RedirectResponse(path, status_code=303)
+
+
+def create_app(db_path=None) -> FastAPI:
+    app = FastAPI(title="学生缺勤登记系统")
+    path = Path(db_path or os.environ.get("ABSENCE_DB") or ROOT / "data" / "absence.db")
+    conn = db.connect(path)
+    db.init(conn)
+    app.state.conn = conn
+    templates = TEMPLATES
+
+    def page(request: Request, name: str, ctx: dict):
+        ctx.update({"msg": request.query_params.get("msg", ""),
+                    "err": request.query_params.get("err", "")})
+        return templates.TemplateResponse(request, name, ctx)
+
+    # ---------- 首页：导入 + 检索 + 名单 ----------
+    @app.get("/")
+    def index(request: Request):
+        students = services.list_students(app.state.conn)
+        return page(request, "index.html",
+                    {"students": students, "count": len(students),
+                     "periods": services.PERIODS})
+
+    @app.post("/import")
+    async def import_roster(file: UploadFile = File(...)):
+        data = await file.read()
+        try:
+            result = services.import_students(app.state.conn, data)
+        except services.ImportError_ as e:
+            return _redirect("/", err=str(e))
+        return _redirect("/", msg=f"导入成功，共 {result['total']} 名学生")
+
+    @app.get("/search")
+    def search(request: Request, q: str = ""):
+        q = q.strip()
+        if not q:
+            return _redirect("/", err="请输入姓名或学号")
+        results = services.search_students(app.state.conn, q)
+        if not results:
+            return _redirect("/", err=f"未找到与“{q}”匹配的学生")
+        if len(results) == 1:
+            return _redirect(f"/student/{results[0]['student_id']}")
+        return page(request, "candidates.html",
+                    {"results": results, "query": q})
+
+    # ---------- 学生详情 ----------
+    @app.get("/student/{student_id}")
+    def student_detail(request: Request, student_id: str):
+        student = services.get_student(app.state.conn, student_id)
+        if student is None:
+            return _redirect("/", err="该学生不存在（可能已被新的信息表覆盖）")
+        records = services.list_records(app.state.conn, student_id)
+        summary = services.weekly_summary(app.state.conn, student_id)
+        weeks = sorted(summary.keys(), reverse=True)
+        try:
+            week = int(request.query_params.get("week", weeks[0] if weeks else 1))
+        except ValueError:
+            week = weeks[0] if weeks else 1
+        current = summary.get(week, {"leave": 0, "absent": 0})
+        # 按周分组记录
+        grouped = {}
+        for r in records:
+            grouped.setdefault(r["week"], []).append(r)
+        return page(request, "student.html",
+                    {"student": student, "grouped": grouped,
+                     "summary": summary, "weeks": weeks,
+                     "week": week, "current": current,
+                     "periods": services.PERIODS,
+                     "type_label": services.TYPE_LABEL})
+
+    @app.post("/student/{student_id}/records")
+    async def add_records(request: Request, student_id: str):
+        if services.get_student(app.state.conn, student_id) is None:
+            return _redirect("/", err="该学生不存在")
+        form = await request.form()
+        week = form.get("week", "")
+        rtype = form.get("rtype", "")
+        note = form.get("note", "")
+        periods = form.getlist("period")
+        try:
+            result = services.add_records(
+                app.state.conn, student_id, week, periods, rtype, note)
+        except ValueError as e:
+            return _redirect(f"/student/{student_id}", err=str(e))
+        msg = f"登记成功 {result['created']} 条"
+        if result["skipped"]:
+            msg += f"，跳过已存在的 {result['skipped']} 条（如需修改请直接改类型）"
+        return _redirect(f"/student/{student_id}", msg=msg)
+
+    @app.post("/records/{record_id}/type")
+    def update_type(record_id: int, student_id: str = Form(...), rtype: str = Form(...)):
+        try:
+            ok = services.update_record_type(app.state.conn, record_id, rtype)
+        except ValueError as e:
+            return _redirect(f"/student/{student_id}", err=str(e))
+        if not ok:
+            return _redirect(f"/student/{student_id}", err="记录不存在")
+        return _redirect(f"/student/{student_id}", msg="类型已更新")
+
+    @app.post("/records/{record_id}/delete")
+    def delete_record(record_id: int, student_id: str = Form(...)):
+        ok = services.delete_record(app.state.conn, record_id)
+        if not ok:
+            return _redirect(f"/student/{student_id}", err="记录不存在")
+        return _redirect(f"/student/{student_id}", msg="记录已删除")
+
+    # ---------- 导出 ----------
+    @app.get("/export")
+    def export():
+        data = services.export_report(app.state.conn)
+        filename = urllib.parse.quote("缺勤统计报表.xlsx")
+        return Response(
+            content=data,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition":
+                     f"attachment; filename*=UTF-8''{filename}"})
+
+    return app
+
+
+app = create_app()

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>找到 {{ results|length }} 名匹配“{{ query }}”的学生，请选择</h2>
+  <table>
+    <tr><th>学号</th><th>姓名</th><th>专业</th><th>班级</th><th>年级</th></tr>
+    {% for s in results %}
+    <tr>
+      <td><a href="/student/{{ s['student_id'] }}">{{ s['student_id'] }}</a></td>
+      <td><a href="/student/{{ s['student_id'] }}">{{ s['name'] }}</a></td>
+      <td>{{ s['major'] }}</td>
+      <td>{{ s['class_name'] }}</td>
+      <td>{{ s['grade'] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

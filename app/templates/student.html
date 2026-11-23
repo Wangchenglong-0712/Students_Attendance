@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>{{ student['name'] }}　<span class="muted">{{ student['student_id'] }} · {{ student['major'] }} · {{ student['class_name'] }} · {{ student['grade'] }}级</span></h2>
+
+  <p class="totals">
+    第 {{ week }} 周合计：
+    请假 <b class="leave">{{ current['leave'] }} 学时</b> ·
+    旷课 <b class="absent">{{ current['absent'] }} 学时</b>
+    {% if weeks %}
+    <form action="/student/{{ student['student_id'] }}" method="get" style="display:inline; margin-left:12px;">
+      <select name="week" onchange="this.form.submit()">
+        {% for w in weeks %}
+        <option value="{{ w }}" {% if w == week %}selected{% endif %}>第 {{ w }} 周</option>
+        {% endfor %}
+      </select>
+    </form>
+    {% endif %}
+  </p>
+</div>
+
+<div class="card">
+  <h2>登记缺勤</h2>
+  <form action="/student/{{ student['student_id'] }}/records" method="post">
+    <div>
+      <label>周次 <input type="number" name="week" min="1" value="{{ week }}" required></label>
+    </div>
+    <div>
+      {% for p in periods %}
+      <label class="period"><input type="checkbox" name="period" value="{{ p }}"> {{ p }}</label>
+      {% endfor %}
+    </div>
+    <div>
+      <label class="period"><input type="radio" name="rtype" value="leave" checked> 请假</label>
+      <label class="period"><input type="radio" name="rtype" value="absent"> 旷课</label>
+    </div>
+    <div>
+      <label>备注 <input type="text" name="note" placeholder="选填"></label>
+      <button type="submit">提交</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>缺勤记录</h2>
+  {% if grouped %}
+    {% for w, recs in grouped.items() %}
+    <p class="totals">第 {{ w }} 周：请假 <b class="leave">{{ summary.get(w, {'leave':0})['leave'] }} 学时</b> ·
+      旷课 <b class="absent">{{ summary.get(w, {'absent':0})['absent'] }} 学时</b></p>
+    <table>
+      <tr><th>节次</th><th>类型</th><th>备注</th><th>操作</th></tr>
+      {% for r in recs %}
+      <tr>
+        <td>{{ r['period'] }}</td>
+        <td>{{ type_label[r['type']] }}</td>
+        <td>{{ r['note'] or '' }}</td>
+        <td class="actions">
+          <form action="/records/{{ r['id'] }}/type" method="post">
+            <input type="hidden" name="student_id" value="{{ student['student_id'] }}">
+            <input type="hidden" name="rtype" value="{{ 'absent' if r['type'] == 'leave' else 'leave' }}">
+            <button class="plain" type="submit">改为{{ '旷课' if r['type'] == 'leave' else '请假' }}</button>
+          </form>
+          <form action="/records/{{ r['id'] }}/delete" method="post"
+                onsubmit="return confirm('确定删除该记录？');">
+            <input type="hidden" name="student_id" value="{{ student['student_id'] }}">
+            <button class="danger" type="submit">删除</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    <br>
+    {% endfor %}
+  {% else %}
+  <p class="muted">暂无缺勤记录。</p>
+  {% endif %}
+</div>
+{% endblock %}
