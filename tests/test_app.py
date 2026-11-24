@@ -250,15 +250,20 @@ def test_export_report(tmp_path):
     ws = wb.active
     rows = list(ws.iter_rows(values_only=True))
     header = rows[0]
-    assert list(header[:5]) == ["姓名", "学号", "专业", "班级", "年级"]
-    assert "第5周 请假(学时)" in header and "第5周 旷课(学时)" in header
-    assert list(header[-2:]) == ["请假合计(学时)", "旷课合计(学时)"]
+    assert list(header) == ["序号", "学号", "姓名", "班级", "旷课（合计）",
+                            "请假（合计）", "课时（缺勤记录）", "备注"]
 
     by_sid = {r[1]: r for r in rows[1:]}
     zhang = by_sid["2023010101"]
-    assert zhang[-2] == 4 and zhang[-1] == 2   # 请假 4 学时，旷课 2 学时
+    assert zhang[0] == 1
+    assert zhang[3] == "计算机232"          # 专业+年级后两位+班级号
+    assert zhang[4] == 2 and zhang[5] == 4  # 旷课 2 学时、请假 4 学时
+    # 全学期导出时明细带“第N周 ”前缀
+    assert zhang[6] == "第5周 星期一：1-2（假），3-4（假），5-6（旷）"
+    assert zhang[7] in ("", None)           # 备注留空
     li = by_sid["2023010102"]
-    assert li[-2] == 0 and li[-1] == 2
+    assert li[4] == 2 and li[5] == 0
+    assert li[6] == "第5周 星期一：11-12（旷）"
     # 无缺勤记录的学生不出现在报表中
     assert "2023010201" not in by_sid
     wb.close()
@@ -276,15 +281,14 @@ def test_export_specific_week(tmp_path):
     wb = load_workbook(io.BytesIO(resp.content))
     rows = list(wb.active.iter_rows(values_only=True))
     header = rows[0]
-    assert "第5周 请假(学时)" in header
-    assert not any("第7周" in str(h) for h in header)   # 不含其他周次列
-    assert list(header[-1:]) == ["缺勤明细"]
+    assert list(header) == ["序号", "学号", "姓名", "班级", "旷课（合计）",
+                            "请假（合计）", "课时（缺勤记录）", "备注"]
     by_sid = {r[1]: r for r in rows[1:]}
     assert list(by_sid.keys()) == ["2023010101"]       # 只含该周有记录的学生
     row = by_sid["2023010101"]
-    assert row[-3] == 2 and row[-2] == 2               # 请假 2 学时、旷课 2 学时
-    # 不同星期之间用两个空格分隔，按星期一~日排序
-    assert row[-1] == "星期三：5-6（旷）  星期五：1-2（假）"
+    assert row[4] == 2 and row[5] == 2                 # 旷课 2 学时、请假 2 学时
+    # 指定周次时明细不带周次前缀，星期之间两个空格分隔
+    assert row[6] == "星期三：5-6（旷）  星期五：1-2（假）"
     wb.close()
 
 
@@ -298,8 +302,21 @@ def test_export_detail_same_day_multiple(tmp_path):
     resp = client.get("/export", params={"week": 5})
     wb = load_workbook(io.BytesIO(resp.content))
     rows = list(wb.active.iter_rows(values_only=True))
-    detail = {r[1]: r for r in rows[1:]}["2023010101"][-1]
+    detail = {r[1]: r for r in rows[1:]}["2023010101"][6]
     assert detail == "星期一：5-6（假），9-10（旷）  星期二：1-2（旷）"
+    wb.close()
+
+
+def test_export_class_label_format(tmp_path):
+    """班级列 = 专业 + 年级后两位 + 班级号，如 软件工程（中外合作办学）241。"""
+    client = make_client(tmp_path)
+    import_roster(client, [HEADER,
+                           ["王五", "2024010101", "软件工程（中外合作办学）", "1班", "2024"]])
+    add(client, "2024010101", 5, ["1-2"], "absent")
+    resp = client.get("/export", params={"week": 5})
+    wb = load_workbook(io.BytesIO(resp.content))
+    rows = list(wb.active.iter_rows(values_only=True))
+    assert rows[1][3] == "软件工程（中外合作办学）241"
     wb.close()
 
 

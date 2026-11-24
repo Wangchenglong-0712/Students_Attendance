@@ -1,6 +1,7 @@
 """业务逻辑：导入、检索、缺勤登记、统计、导出。"""
 import io
 import json
+import re
 import sqlite3
 from datetime import datetime
 
@@ -199,15 +200,62 @@ def all_weeks(conn: sqlite3.Connection) -> list:
         "SELECT DISTINCT week FROM absence_records ORDER BY week").fetchall()]
 
 
+def _class_label(student) -> str:
+    """班级列：专业 + 年级后两位 + 班级号，如 软件工程（中外合作办学）241。"""
+    major = student["major"] or ""
+    grade_digits = re.sub(r"\D", "", student["grade"] or "")
+    grade_part = grade_digits[-2:] if grade_digits else (student["grade"] or "")
+    cls = student["class_name"] or ""
+    m = re.search(r"\d+", cls)
+    cls_no = m.group() if m else cls
+    return f"{major}{grade_part}{cls_no}"
+
+
+def _detail_text(conn: sqlite3.Connection, weeks: list, with_week_prefix: bool) -> dict:
+    """{学号: 缺勤明细文字}。同星期节次用“，”连接，星期之间两个空格分隔；
+    导出多周时每段前加“第N周 ”前缀。"""
+    marks = {"leave": "假", "absent": "旷"}
+    grouped: dict = {}
+    placeholders = ",".join("?" * len(weeks))
+    rows = conn.execute(
+        "SELECT student_id, week, weekday, period, type FROM absence_records"
+        f" WHERE week IN ({placeholders}) ORDER BY week", list(weeks)).fetchall()
+    for r in rows:
+        grouped.setdefault(r["student_id"], {}).setdefault(r["week"], {}).setdefault(
+            r["weekday"], []).append(
+            (PERIOD_ORDER.get(r["period"], 99), f"{r['period']}（{marks[r['type']]}）"))
+
+    details: dict = {}
+    for sid, by_week in grouped.items():
+        week_parts = []
+        for w in sorted(by_week):
+            day_parts = []
+            for wd, entries in sorted(by_week[w].items(),
+                                      key=lambda kv: WEEKDAY_ORDER.get(kv[0], 99)):
+                text = "，".join(e for _, e in sorted(entries))
+                day_parts.append(f"{wd}：{text}" if wd else text)
+            week_text = "  ".join(day_parts)
+            if with_week_prefix:
+                week_text = f"第{w}周 {week_text}"
+            week_parts.append(week_text)
+        details[sid] = "  ".join(week_parts)
+    return details
+
+
 def export_report(conn: sqlite3.Connection, week=None) -> bytes:
-    """统计报表：只导出有缺勤记录的学生；week 为空导出全部周次，否则仅该周。"""
+    """统计报表：表头固定，只导出有缺勤记录的学生；
+    week 为空统计全学期并汇总明细，否则仅统计该周。"""
     if week is None:
         weeks = all_weeks(conn)
         week_filter, params = "", []
+        with_week_prefix = True
     else:
         weeks = [int(week)]
         week_filter = " WHERE week = ?"
         params = [int(week)]
+        with_week_prefix = False
+    if not weeks:
+        weeks = [0]  # 全无记录时仅用于占位，保证输出表头
     stats: dict = {}
     for r in conn.execute(
             "SELECT student_id, week, type, COUNT(*) AS n FROM absence_records"
@@ -216,51 +264,23 @@ def export_report(conn: sqlite3.Connection, week=None) -> bytes:
             r["week"], {"leave": 0, "absent": 0})[r["type"]] = r["n"] * 2
     # 只保留有缺勤记录的学生
     students = [s for s in list_students(conn) if s["student_id"] in stats]
-
-    # 指定周次时生成缺勤明细，同一星期多个节次用“，”连接，
-    # 不同星期之间用两个空格分隔，如“星期一：5-6（假），9-10（旷）  星期二：9-10（旷）”
-    details: dict = {}
-    if week is not None:
-        grouped: dict = {}
-        for r in conn.execute(
-                "SELECT student_id, weekday, period, type FROM absence_records"
-                " WHERE week = ?", (int(week),)).fetchall():
-            mark = "假" if r["type"] == "leave" else "旷"
-            grouped.setdefault(r["student_id"], {}).setdefault(
-                r["weekday"], []).append(
-                (PERIOD_ORDER.get(r["period"], 99), f"{r['period']}（{mark}）"))
-        for sid, days in grouped.items():
-            day_parts = []
-            for wd, entries in sorted(days.items(),
-                                      key=lambda kv: WEEKDAY_ORDER.get(kv[0], 99)):
-                text = "，".join(e for _, e in sorted(entries))
-                day_parts.append(f"{wd}：{text}" if wd else text)
-            details[sid] = "  ".join(day_parts)
+    details = _detail_text(conn, weeks, with_week_prefix) if stats else {}
 
     wb = Workbook()
     ws = wb.active
     ws.title = "缺勤统计"
-    header = ["姓名", "学号", "专业", "班级", "年级"]
-    for w in weeks:
-        header += [f"第{w}周 请假(学时)", f"第{w}周 旷课(学时)"]
-    header += ["请假合计(学时)", "旷课合计(学时)"]
-    if week is not None:
-        header.append("缺勤明细")
-    ws.append(header)
+    ws.append(["序号", "学号", "姓名", "班级", "旷课（合计）", "请假（合计）",
+               "课时（缺勤记录）", "备注"])
 
-    for s in students:
-        row = [s["name"], s["student_id"], s["major"] or "", s["class_name"] or "",
-               s["grade"] or ""]
-        leave_total = absent_total = 0
+    for i, s in enumerate(students, start=1):
+        absent_total = leave_total = 0
         for w in weeks:
             cell = stats.get(s["student_id"], {}).get(w, {"leave": 0, "absent": 0})
-            row += [cell["leave"], cell["absent"]]
-            leave_total += cell["leave"]
             absent_total += cell["absent"]
-        row += [leave_total, absent_total]
-        if week is not None:
-            row.append(details.get(s["student_id"], ""))
-        ws.append(row)
+            leave_total += cell["leave"]
+        ws.append([i, s["student_id"], s["name"], _class_label(s),
+                   absent_total, leave_total,
+                   details.get(s["student_id"], ""), ""])
 
     out = io.BytesIO()
     wb.save(out)
