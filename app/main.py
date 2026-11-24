@@ -1,4 +1,6 @@
-"""FastAPI 路由：导入、检索、学生详情、缺勤登记、统计导出。"""
+"""FastAPI 路由：登录、导入、检索、学生详情、缺勤登记、统计导出。"""
+import hashlib
+import hmac
 import os
 import urllib.parse
 from pathlib import Path
@@ -11,6 +13,13 @@ from . import db, services
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+
+USERNAME = "bfmzdx"
+PASSWORD = "wclshidashuaige"
+# 登录凭据的摘要，作为会话 Cookie 值（不存明文密码）
+SESSION_VALUE = hashlib.sha256(f"{USERNAME}:{PASSWORD}".encode()).hexdigest()
+# 无需登录即可访问的路径
+PUBLIC_PATHS = {"/login", "/logout"}
 
 
 def _redirect(path: str, msg: str = "", err: str = "") -> RedirectResponse:
@@ -34,8 +43,47 @@ def create_app(db_path=None) -> FastAPI:
 
     def page(request: Request, name: str, ctx: dict):
         ctx.update({"msg": request.query_params.get("msg", ""),
-                    "err": request.query_params.get("err", "")})
+                    "err": request.query_params.get("err", ""),
+                    "logged_in": _is_authed(request)})
         return templates.TemplateResponse(request, name, ctx)
+
+    def _is_authed(request: Request) -> bool:
+        return hmac.compare_digest(request.cookies.get("session", ""),
+                                   SESSION_VALUE)
+
+    # ---------- 登录保护 ----------
+    @app.middleware("http")
+    async def require_login(request: Request, call_next):
+        path = request.url.path
+        if path in PUBLIC_PATHS or _is_authed(request):
+            return await call_next(request)
+        return RedirectResponse("/login", status_code=303)
+
+    @app.get("/login")
+    def login_page(request: Request):
+        if _is_authed(request):
+            return RedirectResponse("/", status_code=303)
+        return templates.TemplateResponse(request, "login.html",
+                                          {"err": request.query_params.get("err", "")})
+
+    @app.post("/login")
+    async def login_submit(request: Request):
+        form = await request.form()
+        username = form.get("username", "")
+        password = form.get("password", "")
+        if hmac.compare_digest(username, USERNAME) and \
+                hmac.compare_digest(password, PASSWORD):
+            resp = RedirectResponse("/", status_code=303)
+            resp.set_cookie("session", SESSION_VALUE, httponly=True, samesite="lax")
+            return resp
+        return templates.TemplateResponse(
+            request, "login.html", {"err": "账号或密码错误"})
+
+    @app.get("/logout")
+    def logout():
+        resp = RedirectResponse("/login", status_code=303)
+        resp.delete_cookie("session")
+        return resp
 
     # ---------- 首页：导入 + 检索 + 名单 ----------
     @app.get("/")

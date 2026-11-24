@@ -5,7 +5,7 @@ from urllib.parse import unquote_plus
 from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
 
-from app.main import create_app
+from app.main import PASSWORD, USERNAME, create_app
 
 
 def loc(resp) -> str:
@@ -32,9 +32,73 @@ def make_xlsx(rows) -> bytes:
     return out.getvalue()
 
 
-def make_client(tmp_path):
+def make_client(tmp_path, login=True):
+    """构造已登录的测试客户端（业务测试均在登录态下进行）。"""
     app = create_app(tmp_path / "test.db")
-    return TestClient(app)
+    client = TestClient(app)
+    if login:
+        resp = client.post("/login", data={"username": USERNAME, "password": PASSWORD},
+                           follow_redirects=False)
+        assert resp.status_code == 303, resp.text
+    return client
+
+
+# ---------- 登录 ----------
+
+def test_protected_pages_redirect_to_login(tmp_path):
+    client = make_client(tmp_path, login=False)
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/login"
+    # POST 也受保护
+    resp = client.post("/import", files={"file": ("x.xlsx", b"fake")},
+                       follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/login"
+    # 未登录时导出同样被拦截
+    resp = client.get("/export", follow_redirects=False)
+    assert resp.headers["location"] == "/login"
+
+
+def test_login_page_accessible_without_cookie(tmp_path):
+    client = make_client(tmp_path, login=False)
+    resp = client.get("/login")
+    assert resp.status_code == 200
+    assert "登录" in resp.text and 'name="password"' in resp.text
+
+
+def test_login_wrong_password(tmp_path):
+    client = make_client(tmp_path, login=False)
+    resp = client.post("/login", data={"username": USERNAME, "password": "wrong"},
+                       follow_redirects=False)
+    assert resp.status_code == 200          # 停留在登录页
+    assert "账号或密码错误" in resp.text
+    assert "session" not in resp.cookies     # 不下发凭据
+
+
+def test_login_success_and_access(tmp_path):
+    client = make_client(tmp_path, login=False)
+    resp = client.post("/login",
+                       data={"username": USERNAME, "password": PASSWORD},
+                       follow_redirects=False)
+    assert resp.status_code == 303
+    assert loc(resp) == "/"
+    assert "session" in resp.cookies
+    home = client.get("/")
+    assert home.status_code == 200
+    assert "退出登录" in home.text
+
+
+def test_logout_clears_session(tmp_path):
+    client = make_client(tmp_path, login=False)
+    client.post("/login", data={"username": USERNAME, "password": PASSWORD},
+                follow_redirects=False)
+    resp = client.get("/logout", follow_redirects=False)
+    assert resp.status_code == 303
+    assert loc(resp) == "/login"
+    after = client.get("/", follow_redirects=False)
+    assert after.status_code == 303
+    assert after.headers["location"] == "/login"
 
 
 def import_roster(client, rows=ROSTER):

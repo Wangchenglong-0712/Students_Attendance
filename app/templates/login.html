@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}登录 - 学生缺勤登记系统{% endblock %}
+{% block content %}
+<div class="card" style="max-width: 380px; margin: 40px auto;">
+  <h2>登录</h2>
+  {% if err %}<div class="banner err">{{ err }}</div>{% endif %}
+  <form action="/login" method="post">
+    <p><input type="text" name="username" placeholder="账号" required
+              style="width: 100%; box-sizing: border-box;"></p>
+    <p><input type="password" name="password" placeholder="密码" required
+              style="width: 100%; box-sizing: border-box;"></p>
+    <p><button type="submit" style="width: 100%;">登录</button></p>
+  </form>
+</div>
+{% endblock %}
