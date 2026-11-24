@@ -1,0 +1,14 @@
+# 构建镜像时排除本地数据与测试文件，学生信息绝不进入镜像
+data/
+*.db
+*.xlsx
+*.xls
+.git/
+tests/
+__pycache__/
+.pytest_cache/
+pytest.ini
+deploy/
+*.md
+环境说明.txt
+启动.ps1
