@@ -201,13 +201,16 @@ def all_weeks(conn: sqlite3.Connection) -> list:
 
 
 def _class_label(student) -> str:
-    """班级列：专业 + 年级后两位 + 班级号，如 软件工程（中外合作办学）241。"""
+    """班级列：专业 + 年级后两位 + 班级号，如 计算机科学与技术262。
+    若班级列本身已含年级前缀（如“262”已含“26”），则直接用班级列编号，避免重复拼接。"""
     major = student["major"] or ""
     grade_digits = re.sub(r"\D", "", student["grade"] or "")
-    grade_part = grade_digits[-2:] if grade_digits else (student["grade"] or "")
+    grade_part = grade_digits[-2:] if grade_digits else ""
     cls = student["class_name"] or ""
     m = re.search(r"\d+", cls)
     cls_no = m.group() if m else cls
+    if grade_part and cls_no.startswith(grade_part):
+        return f"{major}{cls_no}"
     return f"{major}{grade_part}{cls_no}"
 
 

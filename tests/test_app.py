@@ -384,6 +384,19 @@ def test_export_class_label_format(tmp_path):
     wb.close()
 
 
+def test_export_class_label_no_duplicate_grade(tmp_path):
+    """班级列本身已含年级（如262）时不再重复拼接，输出 计算机科学与技术262。"""
+    client = make_client(tmp_path)
+    import_roster(client, [HEADER,
+                           ["赵六", "2026010101", "计算机科学与技术", "262", "2026"]])
+    add(client, "2026010101", 5, ["1-2"], "absent")
+    resp = client.get("/export", params={"week": 5})
+    wb = load_workbook(io.BytesIO(resp.content))
+    rows = list(wb.active.iter_rows(values_only=True))
+    assert rows[1][3] == "计算机科学与技术262"
+    wb.close()
+
+
 def test_same_period_different_weekday_allowed(tmp_path):
     client = make_client(tmp_path)
     import_roster(client)
