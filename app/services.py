@@ -217,20 +217,25 @@ def export_report(conn: sqlite3.Connection, week=None) -> bytes:
     # 只保留有缺勤记录的学生
     students = [s for s in list_students(conn) if s["student_id"] in stats]
 
-    # 指定周次时生成缺勤明细，如“星期五：1-2（假）；星期三：5-6（旷）”
+    # 指定周次时生成缺勤明细，同一星期多个节次用“，”连接，
+    # 不同星期之间用两个空格分隔，如“星期一：5-6（假），9-10（旷）  星期二：9-10（旷）”
     details: dict = {}
     if week is not None:
+        grouped: dict = {}
         for r in conn.execute(
                 "SELECT student_id, weekday, period, type FROM absence_records"
                 " WHERE week = ?", (int(week),)).fetchall():
             mark = "假" if r["type"] == "leave" else "旷"
-            entry = f"{r['weekday']}：{r['period']}（{mark}）" if r["weekday"] \
-                else f"{r['period']}（{mark}）"
-            details.setdefault(r["student_id"], []).append(
-                (WEEKDAY_ORDER.get(r["weekday"], 99),
-                 PERIOD_ORDER.get(r["period"], 99), entry))
-        for sid in details:
-            details[sid] = "；".join(e for _, _, e in sorted(details[sid]))
+            grouped.setdefault(r["student_id"], {}).setdefault(
+                r["weekday"], []).append(
+                (PERIOD_ORDER.get(r["period"], 99), f"{r['period']}（{mark}）"))
+        for sid, days in grouped.items():
+            day_parts = []
+            for wd, entries in sorted(days.items(),
+                                      key=lambda kv: WEEKDAY_ORDER.get(kv[0], 99)):
+                text = "，".join(e for _, e in sorted(entries))
+                day_parts.append(f"{wd}：{text}" if wd else text)
+            details[sid] = "  ".join(day_parts)
 
     wb = Workbook()
     ws = wb.active

@@ -283,8 +283,23 @@ def test_export_specific_week(tmp_path):
     assert list(by_sid.keys()) == ["2023010101"]       # 只含该周有记录的学生
     row = by_sid["2023010101"]
     assert row[-3] == 2 and row[-2] == 2               # 请假 2 学时、旷课 2 学时
-    # 明细按星期一~日、节次排序，格式“星期五：1-2（假）”
-    assert row[-1] == "星期三：5-6（旷）；星期五：1-2（假）"
+    # 不同星期之间用两个空格分隔，按星期一~日排序
+    assert row[-1] == "星期三：5-6（旷）  星期五：1-2（假）"
+    wb.close()
+
+
+def test_export_detail_same_day_multiple(tmp_path):
+    """同一天内多次缺勤用“，”连接节次。"""
+    client = make_client(tmp_path)
+    import_roster(client)
+    add(client, "2023010101", 5, ["5-6"], "leave", weekday="星期一")
+    add(client, "2023010101", 5, ["9-10"], "absent", weekday="星期一")
+    add(client, "2023010101", 5, ["1-2"], "absent", weekday="星期二")
+    resp = client.get("/export", params={"week": 5})
+    wb = load_workbook(io.BytesIO(resp.content))
+    rows = list(wb.active.iter_rows(values_only=True))
+    detail = {r[1]: r for r in rows[1:]}["2023010101"][-1]
+    assert detail == "星期一：5-6（假），9-10（旷）  星期二：1-2（旷）"
     wb.close()
 
 
