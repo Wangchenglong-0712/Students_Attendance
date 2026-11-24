@@ -317,7 +317,8 @@ def export_report(conn: sqlite3.Connection, week=None) -> bytes:
             absent_total += cell["absent"]
             leave_total += cell["leave"]
         ws.append([i, s["student_id"], s["name"], _class_label(s),
-                   absent_total, leave_total,
+                   absent_total if absent_total > 0 else None,
+                   leave_total if leave_total > 0 else None,
                    details.get(s["student_id"], ""), ""])
 
     out = io.BytesIO()

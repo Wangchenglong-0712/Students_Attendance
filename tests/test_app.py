@@ -326,7 +326,7 @@ def test_export_report(tmp_path):
     assert zhang[6] == "第5周 星期一：1-2（假），3-4（假），5-6（旷）"
     assert zhang[7] in ("", None)           # 备注留空
     li = by_sid["2023010102"]
-    assert li[4] == 2 and li[5] == 0
+    assert li[4] == 2 and li[5] in (None, "")   # 合计为 0 时单元格留空
     assert li[6] == "第5周 星期一：11-12（旷）"
     # 无缺勤记录的学生不出现在报表中
     assert "2023010201" not in by_sid
