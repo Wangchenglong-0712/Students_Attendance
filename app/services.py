@@ -316,9 +316,9 @@ def export_report(conn: sqlite3.Connection, week=None) -> bytes:
             cell = stats.get(s["student_id"], {}).get(w, {"leave": 0, "absent": 0})
             absent_total += cell["absent"]
             leave_total += cell["leave"]
+        # 合计为 0 的单元格留空，只显示大于 0 的数字
         ws.append([i, s["student_id"], s["name"], _class_label(s),
-                   absent_total if absent_total > 0 else None,
-                   leave_total if leave_total > 0 else None,
+                   absent_total or None, leave_total or None,
                    details.get(s["student_id"], ""), ""])
 
     out = io.BytesIO()
