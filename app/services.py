@@ -214,6 +214,40 @@ def _class_label(student) -> str:
     return f"{major}{grade_part}{cls_no}"
 
 
+def _major_rank(major: str) -> int:
+    """专业排序：计科-软工-网工-智科-中外，其余排最后。"""
+    if "中外" in major:
+        return 4
+    if "计算机" in major or "计科" in major:
+        return 0
+    if "软件" in major:
+        return 1
+    if "网络" in major:
+        return 2
+    if "智能" in major:
+        return 3
+    return 5
+
+
+def _export_sort_key(student):
+    """年级升序（2024→2026）→ 专业顺序 → 班号 → 学号。"""
+    grade_digits = re.sub(r"\D", "", student["grade"] or "")
+    if grade_digits:
+        g = int(grade_digits)
+        grade = 2000 + g if g < 100 else g
+    else:
+        grade = 0
+    grade_part = grade_digits[-2:] if grade_digits else ""
+    cls_digits = re.sub(r"\D", "", student["class_name"] or "")
+    # 班号可能含年级前缀（如“262”），先剥离再比较
+    if grade_part and cls_digits.startswith(grade_part) \
+            and len(cls_digits) > len(grade_part):
+        cls_digits = cls_digits[len(grade_part):]
+    cls_no = int(cls_digits) if cls_digits.isdigit() else 0
+    return (grade, _major_rank(student["major"] or ""), cls_no,
+            student["student_id"])
+
+
 def _detail_text(conn: sqlite3.Connection, weeks: list, with_week_prefix: bool) -> dict:
     """{学号: 缺勤明细文字}。同星期节次用“，”连接，星期之间两个空格分隔；
     导出多周时每段前加“第N周 ”前缀。"""
@@ -265,8 +299,9 @@ def export_report(conn: sqlite3.Connection, week=None) -> bytes:
             + week_filter + " GROUP BY student_id, week, type", params).fetchall():
         stats.setdefault(r["student_id"], {}).setdefault(
             r["week"], {"leave": 0, "absent": 0})[r["type"]] = r["n"] * 2
-    # 只保留有缺勤记录的学生
-    students = [s for s in list_students(conn) if s["student_id"] in stats]
+    # 只保留有缺勤记录的学生，按 年级 → 专业（计科-软工-网工-智科-中外）→ 班号 排序
+    students = sorted((s for s in list_students(conn) if s["student_id"] in stats),
+                      key=_export_sort_key)
     details = _detail_text(conn, weeks, with_week_prefix) if stats else {}
 
     wb = Workbook()

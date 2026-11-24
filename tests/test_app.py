@@ -397,6 +397,36 @@ def test_export_class_label_no_duplicate_grade(tmp_path):
     wb.close()
 
 
+def test_export_sort_order(tmp_path):
+    """年级升序（2024→2026），年级内专业顺序：计科-软工-网工-智科-中外，专业内按班号。"""
+    client = make_client(tmp_path)
+    roster = [HEADER,
+              ["张三", "2026010101", "网络工程", "262", "2026"],
+              ["李四", "2024010101", "软件工程", "241", "2024"],
+              ["王五", "2026010102", "计算机科学与技术", "261", "2026"],
+              ["赵六", "2025010101", "智能科学与技术", "251", "2025"],
+              ["钱七", "2026010103", "软件工程（中外合作办学）", "263", "2026"],
+              ["孙八", "2026010104", "计算机科学与技术", "262", "2026"],
+              ["周九", "2024010102", "计算机科学与技术", "241", "2024"]]
+    import_roster(client, roster)
+    for sid in [r[1] for r in roster[1:]]:
+        add(client, sid, 5, ["1-2"], "absent")
+    resp = client.get("/export", params={"week": 5})
+    wb = load_workbook(io.BytesIO(resp.content))
+    rows = list(wb.active.iter_rows(values_only=True))
+    order = [r[1] for r in rows[1:]]
+    assert order == ["2024010102",   # 2024 计科
+                     "2024010101",   # 2024 软工
+                     "2025010101",   # 2025 智科
+                     "2026010102",   # 2026 计科261
+                     "2026010104",   # 2026 计科262
+                     "2026010101",   # 2026 网工
+                     "2026010103"]   # 2026 中外
+    # 序号列按排序结果1..7
+    assert [r[0] for r in rows[1:]] == list(range(1, 8))
+    wb.close()
+
+
 def test_same_period_different_weekday_allowed(tmp_path):
     client = make_client(tmp_path)
     import_roster(client)
